@@ -171,6 +171,24 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .rbar i { display: block; height: 100%; width: 0; background: currentColor; }
 .rtotal { margin-top: auto; padding-top: 10px; border-top: 1px solid color-mix(in srgb, currentColor 45%, transparent); display: flex; justify-content: space-between; font-size: clamp(18px, 3vh, 30px); }
 
+.r-intro { margin: 0 0 8px; font-size: clamp(14px, 2.1vh, 20px); }
+.r-place { margin: 10px 0 4px; font-size: clamp(16px, 2.4vh, 24px); letter-spacing: .08em; font-weight: 700; text-transform: uppercase; }
+.r-place-tie { color: var(--muted); font-size: .78em; }
+.winner-card { margin: 8px 0 12px; padding: 10px; border: 2px solid var(--go); border-radius: 8px; background: color-mix(in srgb, var(--go) 8%, transparent); }
+.winner-kicker { margin: 0; color: var(--go); font-size: clamp(13px, 2vh, 18px); font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.winner-name { margin: 4px 0; font-size: clamp(23px, 4vh, 40px); line-height: 1.05; overflow-wrap: anywhere; }
+.winner-meta { margin: 4px 0 0; font-size: clamp(14px, 2.1vh, 20px); }
+.winner-gallery { display: flex; align-items: flex-start; justify-content: center; gap: 10px; margin-top: 10px; }
+.winner-gallery .ph, .winner-gallery .ph.vp { flex: 1 1 0; width: min(44%, 190px); max-width: 190px; min-width: 0; }
+.winner-gallery .ph figcaption { font-size: clamp(11px, 1.8vh, 16px); overflow-wrap: anywhere; }
+.r-empty { margin: 12px 0; font-size: clamp(18px, 3vh, 28px); font-weight: 700; }
+.finalists { margin: 10px 0; padding: 10px; border: 2px solid var(--fix); border-radius: 8px; }
+.finalists h3 { margin: 0 0 8px; font-size: clamp(18px, 2.8vh, 26px); }
+.finalist-row { margin: 6px 0; font-size: clamp(15px, 2.2vh, 21px); }
+.runoff-start { width: 100%; margin: 8px 0; }
+.opts.result-options { grid-auto-rows: minmax(44px, 1fr); gap: 8px; }
+.opts.result-options .opt { padding: 4px 8px; font-size: clamp(15px, 2.5vh, 24px); }
+
 /* Painel escuro */
 .pad {
   background: var(--pad);
@@ -406,7 +424,7 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path class="w" d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/><path class="x" d="M17 9l5 6M22 9l-5 6"/></svg>
           <span id="sound-text">Som: ligado</span>
         </button>
-        <div class="count" aria-live="polite">Votos na sessão <b id="total-top">0</b></div>
+        <div class="count" aria-live="polite"><span id="round-count-label">Votos na sessão</span> <b id="total-top">0</b></div>
       </div>
     </div>
 
@@ -489,14 +507,18 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
     presCounts: [0, 0, 0, 0, 0], presBlank: 0,
     depCounts: [0, 0, 0, 0, 0], depBlank: 0,
     ballots: 0,
-    last: null,        // { p, d } do último voto, para "Repetir votação"
+    round: 1,
+    runoffCandidates: [],
+    runoffPresCounts: [0, 0, 0, 0, 0], runoffPresBlank: 0, runoffBallots: 0,
+    last: null,        // { p, d, round } do último voto, para "Repetir votação"
     mode: "vote",      // vote | done | result | reset
     from: "vote",
-    step: "pres",      // pres | dep
-    pend: null,        // voto de presidente já confirmado, à espera do deputado
+    step: "dep",       // deputado primeiro, depois presidente
+    pend: null,        // voto de deputado já confirmado, à espera do presidente
     entry: "",
     branco: false,
-    office: "pres"     // cargo exibido no resultado
+    office: "dep",     // resultados começam pelo deputado
+    revealLevel: 0       // grupos de colocação já revelados, do último ao primeiro
   };
 
   function nums(a) {
@@ -507,6 +529,7 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
   try {
     var s = JSON.parse(localStorage.getItem(KEY));
     var pc = s && nums(s.presCounts), dc = s && nums(s.depCounts);
+    var rpc = s && nums(s.runoffPresCounts);
     if (s && Array.isArray(s.parties) && s.parties.length === N && pc && dc) {
       state.parties = s.parties.map(function (p, i) {
         var d = defaultParty(i + 1);
@@ -522,6 +545,15 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
       state.presBlank = Math.max(0, parseInt(s.presBlank, 10) || 0);
       state.depBlank = Math.max(0, parseInt(s.depBlank, 10) || 0);
       state.ballots = Math.max(0, parseInt(s.ballots, 10) || 0);
+      state.runoffPresCounts = rpc || [0, 0, 0, 0, 0];
+      state.runoffPresBlank = Math.max(0, parseInt(s.runoffPresBlank, 10) || 0);
+      state.runoffBallots = Math.max(0, parseInt(s.runoffBallots, 10) || 0);
+      var savedFinalists = Array.isArray(s.runoffCandidates) ? s.runoffCandidates.filter(function (i) { return Number.isInteger(i) && i >= 0 && i < N; }).slice(0, 2) : [];
+      if (s.round === 2 && savedFinalists.length === 2) {
+        state.round = 2;
+        state.runoffCandidates = savedFinalists;
+        state.step = "pres";
+      }
     }
   } catch (e) {}
 
@@ -536,7 +568,10 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
     try {
       localStorage.setItem(KEY, JSON.stringify({
         catalogVersion: 2, parties: state.parties, presCounts: state.presCounts, presBlank: state.presBlank,
-        depCounts: state.depCounts, depBlank: state.depBlank, ballots: state.ballots, fotoMISS: true
+        depCounts: state.depCounts, depBlank: state.depBlank, ballots: state.ballots,
+        round: state.round, runoffCandidates: state.runoffCandidates,
+        runoffPresCounts: state.runoffPresCounts, runoffPresBlank: state.runoffPresBlank,
+        runoffBallots: state.runoffBallots, fotoMISS: true
       }));
       return true;
     } catch (e) {
@@ -548,7 +583,11 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
   function lenOf(office) { return state.parties[0][numKey(office)].length; }
   function match() {
     var k = numKey(state.step);
-    for (var i = 0; i < N; i++) if (state.parties[i][k] === state.entry) return i;
+    var candidates = state.round === 2 && state.step === "pres" ? state.runoffCandidates : [0, 1, 2, 3, 4];
+    for (var j = 0; j < candidates.length; j++) {
+      var i = candidates[j];
+      if (state.parties[i][k] === state.entry) return i;
+    }
     return -1;
   }
 
@@ -695,8 +734,8 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
   function corrige() {
     if (state.mode !== "vote") return;
     beepKey();
-    if (state.entry === "" && !state.branco && state.step === "dep") {
-      state.step = "pres";   // sem nada digitado no deputado: volta ao presidente
+    if (state.round === 1 && state.entry === "" && !state.branco && state.step === "pres") {
+      state.step = "dep";    // sem nada digitado no presidente: volta ao deputado
       state.pend = null;
     } else {
       state.entry = "";
@@ -722,21 +761,37 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
     if (v === null) { beepErr(); return; }
     state.entry = "";
     state.branco = false;
-    if (state.step === "pres") {
+    if (state.round === 2) {
+      beepEnd();
+      registerRunoff(v);
+      return;
+    }
+    if (state.step === "dep") {
       beepStep();
       state.pend = v;
-      state.step = "dep";
+      state.step = "pres";
       render();
     } else {
       beepEnd();
-      register(state.pend, v);
+      register(v, state.pend);
     }
   }
   function register(p, d) {
     if (p === "b") state.presBlank++; else state.presCounts[p]++;
     if (d === "b") state.depBlank++; else state.depCounts[d]++;
     state.ballots++;
-    state.last = { p: p, d: d };
+    state.last = { p: p, d: d, round: 1 };
+    state.step = "dep";
+    state.pend = null;
+    state.mode = "done";
+    save();
+    render();
+  }
+  function registerRunoff(p) {
+    if (p === "b") state.runoffPresBlank++;
+    else state.runoffPresCounts[p]++;
+    state.runoffBallots++;
+    state.last = { p: p, d: null, round: 2 };
     state.step = "pres";
     state.pend = null;
     state.mode = "done";
@@ -752,37 +807,100 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
   function repeat() {
     if (state.last) {
       var l = state.last;
-      if (l.p === "b") state.presBlank = Math.max(0, state.presBlank - 1);
-      else state.presCounts[l.p] = Math.max(0, state.presCounts[l.p] - 1);
-      if (l.d === "b") state.depBlank = Math.max(0, state.depBlank - 1);
-      else state.depCounts[l.d] = Math.max(0, state.depCounts[l.d] - 1);
-      state.ballots = Math.max(0, state.ballots - 1);
+      if (l.round === 2) {
+        if (l.p === "b") state.runoffPresBlank = Math.max(0, state.runoffPresBlank - 1);
+        else state.runoffPresCounts[l.p] = Math.max(0, state.runoffPresCounts[l.p] - 1);
+        state.runoffBallots = Math.max(0, state.runoffBallots - 1);
+      } else {
+        if (l.p === "b") state.presBlank = Math.max(0, state.presBlank - 1);
+        else state.presCounts[l.p] = Math.max(0, state.presCounts[l.p] - 1);
+        if (l.d === "b") state.depBlank = Math.max(0, state.depBlank - 1);
+        else state.depCounts[l.d] = Math.max(0, state.depCounts[l.d] - 1);
+        state.ballots = Math.max(0, state.ballots - 1);
+      }
       state.last = null;
       save();
     }
-    state.step = "pres";
+    state.step = state.round === 2 ? "pres" : "dep";
     state.mode = "vote";
     render();
   }
-  function next() { state.last = null; state.step = "pres"; state.mode = "vote"; render(); }
-  function openResult(from) { state.from = from; state.mode = "result"; $("status").textContent = ""; render(); }
+  function next() { state.last = null; state.step = state.round === 2 ? "pres" : "dep"; state.mode = "vote"; render(); }
+  function openResult(from) { state.from = from; state.office = "dep"; state.revealLevel = 0; state.mode = "result"; $("status").textContent = ""; render(); }
   function back() { state.mode = state.from === "done" ? "done" : "vote"; render(); }
-  function toggleOffice() { state.office = state.office === "pres" ? "dep" : "pres"; render(); }
+  function toggleOffice() { state.office = state.office === "pres" ? "dep" : "pres"; state.revealLevel = 0; render(); }
 
-  function pct(c) { return state.ballots > 0 ? Math.round((c / state.ballots) * 100) : 0; }
+  function roundBallots(office, round) {
+    var r = round == null ? (office === "pres" ? state.round : 1) : round;
+    return office === "pres" && r === 2 ? state.runoffBallots : state.ballots;
+  }
+  function validVotes(office, round) {
+    var r = round == null ? (office === "pres" ? state.round : 1) : round;
+    if (office === "pres" && r === 2) return Math.max(0, state.runoffBallots - state.runoffPresBlank);
+    return Math.max(0, state.ballots - (office === "pres" ? state.presBlank : state.depBlank));
+  }
+  function pct(c, office, round) {
+    var total = office ? validVotes(office, round) : state.ballots;
+    return total > 0 ? 100 * c / total : 0;
+  }
+  function pctLabel(c, office, round) {
+    return pct(c, office, round).toFixed(4).replace(/\.?0+$/, "").replace(".", ",") + "%";
+  }
+  function ballotPctLabel(c, office, round) {
+    var total = roundBallots(office, round);
+    var value = total > 0 ? 100 * c / total : 0;
+    return value.toFixed(4).replace(/\.?0+$/, "").replace(".", ",") + "%";
+  }
+  function presidentMajorityIndex() {
+    var valid = validVotes("pres", 1);
+    if (valid === 0) return -1;
+    for (var i = 0; i < N; i++) if (state.presCounts[i] * 2 > valid) return i;
+    return -1;
+  }
+  function getRunoffFinalists() {
+    return state.parties.map(function (p, i) { return { index: i, count: state.presCounts[i] }; })
+      .sort(function (a, b) { return b.count - a.count || a.index - b.index; })
+      .slice(0, 2).map(function (r) { return r.index; });
+  }
+  function startRunoff() {
+    var valid = validVotes("pres", 1);
+    if (state.round !== 1 || valid === 0 || presidentMajorityIndex() >= 0) return;
+    state.runoffCandidates = getRunoffFinalists();
+    if (state.runoffCandidates.length !== 2) return;
+    state.runoffPresCounts = [0, 0, 0, 0, 0];
+    state.runoffPresBlank = 0;
+    state.runoffBallots = 0;
+    state.round = 2;
+    state.step = "pres";
+    state.entry = "";
+    state.branco = false;
+    state.pend = null;
+    state.last = null;
+    state.mode = "vote";
+    save();
+    render();
+  }
 
   function copyResult() {
-    var lines = ["Resultado da sessão", "Votantes: " + state.ballots, ""];
+    var lines = ["Resultado da sessão", "Votos no primeiro turno: " + state.ballots, ""];
     ["pres", "dep"].forEach(function (o) {
       var counts = o === "pres" ? state.presCounts : state.depCounts;
       var blank = o === "pres" ? state.presBlank : state.depBlank;
-      lines.push(OFFICE[o].toUpperCase());
+      lines.push("1º TURNO · " + OFFICE[o].toUpperCase());
       state.parties.forEach(function (p, i) {
-        lines.push(p[numKey(o)] + " - " + p[nameKey(o)] + " (" + (p.name === p.abbr ? p.abbr : p.abbr + " - " + p.name) + "): " + counts[i] + " (" + pct(counts[i]) + "%)");
+        lines.push(p[numKey(o)] + " - " + p[nameKey(o)] + " (" + (p.name === p.abbr ? p.abbr : p.abbr + " - " + p.name) + "): " + counts[i] + " (" + pctLabel(counts[i], o, 1) + " dos votos válidos)");
       });
-      lines.push("Em branco: " + blank + " (" + pct(blank) + "%)");
+      lines.push("Em branco: " + blank + " (" + ballotPctLabel(blank, o, 1) + " dos votos)");
       lines.push("");
     });
+    if (state.runoffBallots > 0 || state.round === 2) {
+      lines.push("2º TURNO · PRESIDENTE · Votos: " + state.runoffBallots);
+      state.runoffCandidates.forEach(function (i) {
+        var p = state.parties[i], c = state.runoffPresCounts[i];
+        lines.push(p.presNum + " - " + p.presName + " (" + p.abbr + "): " + c + " (" + pctLabel(c, "pres", 2) + " dos votos válidos)");
+      });
+      lines.push("Em branco: " + state.runoffPresBlank + " (" + ballotPctLabel(state.runoffPresBlank, "pres", 2) + " dos votos)");
+    }
     var msg = $("status");
     try {
       navigator.clipboard.writeText(lines.join("\n").trim()).then(
@@ -793,12 +911,21 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
       msg.textContent = "Não foi possível copiar neste aparelho.";
     }
   }
+
   function askReset() { state.mode = "reset"; render(); }
   function doReset() {
     state.presCounts = [0, 0, 0, 0, 0]; state.presBlank = 0;
     state.depCounts = [0, 0, 0, 0, 0]; state.depBlank = 0;
     state.ballots = 0;
+    state.runoffPresCounts = [0, 0, 0, 0, 0];
+    state.runoffPresBlank = 0;
+    state.runoffBallots = 0;
+    state.runoffCandidates = [];
+    state.round = 1;
+    state.step = "dep";
     state.last = null;
+    state.office = "dep";
+    state.revealLevel = 0;
     save();
     state.mode = "result";
     render();
@@ -821,10 +948,12 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
   function render() {
     var scr = $("screen");
     scr.textContent = "";
-    $("total-top").textContent = state.ballots;
+    $("round-count-label").textContent = state.round === 2 ? "Votos no 2º turno" : "Votos na sessão";
+    $("total-top").textContent = state.round === 2 ? state.runoffBallots : state.ballots;
     var m = state.mode;
     $("keypad").hidden = m !== "vote";
     $("opts").hidden = m === "vote";
+    $("opts").classList.remove("result-options");
     $("links").hidden = m !== "vote";
 
     if (m === "vote") renderEntry(scr);
@@ -841,17 +970,22 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
       ]);
     } else if (m === "result") {
       renderResult(scr);
+      $("opts").classList.add("result-options");
+      var groups = resultGroups(state.office);
+      var allRevealed = state.revealLevel >= groups.length;
+      var resultVotes = roundBallots(state.office);
       setOpts([
         { label: "Voltar", cls: "go", fn: back },
-        { label: state.office === "pres" ? "Ver deputados" : "Ver presidentes", cls: "white", fn: toggleOffice },
-        { label: "Copiar resultado", cls: "white", fn: copyResult },
+        { label: state.office === "pres" ? "Ver deputados · 1º turno" : (state.round === 2 ? "Ver presidentes · 2º turno" : "Ver presidentes · 1º turno"), cls: "white", fn: toggleOffice },
+        { label: revealButtonLabel(), cls: "go", fn: revealNext, disabled: resultVotes === 0 || allRevealed },
+        { label: "Copiar resultado", cls: "white", fn: copyResult, disabled: resultVotes > 0 && !allRevealed },
         { label: "Zerar sessão", cls: "fix", fn: askReset }
       ]);
     } else if (m === "reset") {
       scr.appendChild(el("p", "s-label", "Atenção"));
       var c2 = el("div", "s-center");
       c2.appendChild(el("p", "s-warn", "Zerar a sessão?"));
-      c2.appendChild(el("p", "s-sub", "Os votos de " + state.ballots + " pessoa" + (state.ballots === 1 ? "" : "s") + " serão apagados. Isso não pode ser desfeito."));
+      c2.appendChild(el("p", "s-sub", state.round === 2 ? "Serão apagados " + state.ballots + " votos do 1º turno e " + state.runoffBallots + " votos do 2º turno. Isso não pode ser desfeito." : "Os votos de " + state.ballots + " pessoa" + (state.ballots === 1 ? "" : "s") + " serão apagados. Isso não pode ser desfeito."));
       scr.appendChild(c2);
       setOpts([
         { label: "Cancelar", cls: "white", fn: function () { state.mode = "result"; render(); } },
@@ -877,7 +1011,8 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 
   function renderEntry(scr) {
     var off = state.step;
-    scr.appendChild(el("p", "s-label", "Seu voto para " + OFFICE[off] + " · " + (off === "pres" ? "1" : "2") + " de 2"));
+    var prompt = state.round === 2 ? "2º turno · Seu voto para Presidente" : "Seu voto para " + OFFICE[off] + " · " + (off === "dep" ? "1" : "2") + " de 2";
+    scr.appendChild(el("p", "s-label", prompt));
     if (state.branco) {
       var c = el("div", "s-center");
       c.appendChild(el("p", "s-warn", "Voto em branco"));
@@ -924,41 +1059,155 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
       }
     } else {
       text.appendChild(el("p", "s-sub", "Digite o número do " + OFFICE[off].toLowerCase() + "."));
-      var hint = off === "dep" && state.entry === ""
-        ? "BRANCO para votar em branco. CORRIGE, sem número digitado, volta ao presidente."
+      var hint = state.round === 1 && off === "pres" && state.entry === ""
+        ? "BRANCO para votar em branco. CORRIGE, sem número digitado, volta ao deputado."
         : "Para votar em branco, aperte BRANCO.";
       text.appendChild(el("p", "s-hint", hint));
     }
   }
 
+  function resultGroups(office) {
+    var round = office === "pres" ? state.round : 1;
+    var counts = office === "pres" && round === 2 ? state.runoffPresCounts : (office === "pres" ? state.presCounts : state.depCounts);
+    var indices = office === "pres" && round === 2 ? state.runoffCandidates : [0, 1, 2, 3, 4];
+    var rows = indices.map(function (i) {
+      var p = state.parties[i];
+      return { index: i, num: p[numKey(office)], name: p[nameKey(office)], abbr: p.abbr, party: p.name, c: counts[i] };
+    });
+    rows.sort(function (a, b) { return b.c - a.c || a.index - b.index; });
+    var groups = [];
+    rows.forEach(function (r, i) {
+      var g = groups[groups.length - 1];
+      if (!g || g.count !== r.c) {
+        g = { rank: i + 1, count: r.c, rows: [] };
+        groups.push(g);
+      }
+      g.rows.push(r);
+    });
+    return groups;
+  }
+
+  function revealButtonLabel() {
+    var groups = resultGroups(state.office);
+    if (roundBallots(state.office) === 0) return "Aguardando votos";
+    if (state.revealLevel >= groups.length) return "Revelação concluída";
+    var g = groups[groups.length - 1 - state.revealLevel];
+    return "Revelar " + g.rank + "º lugar" + (g.rows.length > 1 ? " · empate" : "");
+  }
+
+  function revealNext() {
+    var groups = resultGroups(state.office);
+    if (roundBallots(state.office) > 0 && state.revealLevel < groups.length) {
+      state.revealLevel++;
+      render();
+    }
+  }
+
+  function renderWinner(scr, office, row, tied, badge) {
+    var party = state.parties[row.index];
+    var card = el("section", "winner-card");
+    card.appendChild(el("p", "winner-kicker", badge || (tied ? "Empate na liderança" : "Vencedor")));
+    card.appendChild(el("h3", "winner-name", row.name));
+    var partyLine = row.abbr + (row.party !== row.abbr ? " · " + row.party : "");
+    var number = row.num ? "Número " + row.num : "";
+    card.appendChild(el("p", "winner-meta", "Partido " + partyLine + (number ? " · " + number : "")));
+    card.appendChild(el("p", "winner-meta", row.c + (row.c === 1 ? " voto" : " votos") + " · " + pctLabel(row.c, office) + " dos votos válidos"));
+    var gallery = el("div", "winner-gallery");
+    if (office === "pres") {
+      gallery.appendChild(figure(party.presPhoto, "Presidente · " + party.presName, "pres"));
+      gallery.appendChild(figure(party.vpPhoto, "Vice-presidente · " + party.vpName, "vp"));
+    } else {
+      gallery.appendChild(figure(party.depPhoto, "Deputado · " + party.depName, "dep"));
+    }
+    card.appendChild(gallery);
+    scr.appendChild(card);
+  }
+
+  function renderFinalists(scr, finalists) {
+    var box = el("section", "finalists");
+    box.appendChild(el("h3", null, "Sem maioria absoluta no 1º turno: passam ao 2º turno"));
+    finalists.forEach(function (i, pos) {
+      var p = state.parties[i];
+      var detail = p.presName + " (" + p.abbr + ") · nº " + p.presNum + " · " + state.presCounts[i] + " votos · " + pctLabel(state.presCounts[i], "pres", 1);
+      box.appendChild(el("p", "finalist-row", (pos + 1) + "º mais votado: " + detail));
+    });
+    var button = el("button", "done-btn runoff-start", "Iniciar segundo turno");
+    button.type = "button";
+    button.addEventListener("click", startRunoff);
+    box.appendChild(button);
+    scr.appendChild(box);
+  }
+
   function renderResult(scr) {
     var o = state.office;
-    var counts = o === "pres" ? state.presCounts : state.depCounts;
-    var blank = o === "pres" ? state.presBlank : state.depBlank;
-    var rows = state.parties.map(function (p, i) { return { num: p[numKey(o)], name: p[nameKey(o)], abbr: p.abbr, c: counts[i] }; });
-    rows.push({ num: "", name: "Em branco", c: blank });
-    var max = Math.max.apply(null, rows.map(function (r) { return r.c; }));
-    scr.appendChild(el("p", "s-title", "Resultado · " + OFFICE[o]));
-    var ul = el("ul", "rrows");
-    ul.style.setProperty("--numw", (lenOf(o) + 0.2) + "ch");
-    rows.forEach(function (r) {
-      var p = pct(r.c);
-      var li = el("li", "rrow" + (max > 0 && r.c === max ? " lead" : ""));
-      li.appendChild(el("span", "num", r.num));
-      li.appendChild(el("span", "nm", r.name + (r.abbr ? " (" + r.abbr + ")" : "")));
-      li.appendChild(el("span", "ct", r.c + " (" + p + "%)"));
-      var bar = el("div", "rbar");
-      var fill = document.createElement("i");
-      fill.style.width = p + "%";
-      bar.appendChild(fill);
-      li.appendChild(bar);
-      ul.appendChild(li);
-    });
-    scr.appendChild(ul);
-    var tot = el("div", "rtotal");
-    tot.appendChild(el("span", null, "Votos na sessão"));
-    tot.appendChild(el("span", null, String(state.ballots)));
-    scr.appendChild(tot);
+    var roundView = o === "pres" ? state.round : 1;
+    var roundBallotCount = roundBallots(o, roundView);
+    var validVoteCount = validVotes(o, roundView);
+    var groups = resultGroups(o);
+    var revealCount = Math.min(state.revealLevel, groups.length);
+    var visible = groups.slice(groups.length - revealCount);
+    var title = "Resultado · " + OFFICE[o] + (o === "pres" ? (roundView === 2 ? " · 2º turno" : " · 1º turno") : "");
+    scr.appendChild(el("p", "s-title", title));
+    scr.appendChild(el("p", "r-intro", "Percentuais calculados sobre os votos válidos; votos em branco ficam fora."));
+
+    if (roundBallotCount === 0) {
+      scr.appendChild(el("p", "r-empty", "Ainda não há votos neste turno para revelar."));
+    } else if (revealCount === 0) {
+      scr.appendChild(el("p", "r-empty", "Aperte o botão Revelar para mostrar o último lugar."));
+    } else {
+      if (revealCount === groups.length) {
+        if (validVoteCount === 0) {
+          scr.appendChild(el("p", "r-empty", "Não houve votos válidos para candidatos."));
+        } else if (o === "pres" && roundView === 1) {
+          var electedIndex = presidentMajorityIndex();
+          if (electedIndex >= 0) {
+            var elected = state.parties[electedIndex];
+            renderWinner(scr, "pres", { index: electedIndex, name: elected.presName, num: elected.presNum, abbr: elected.abbr, party: elected.name, c: state.presCounts[electedIndex] }, false, "Eleito no 1º turno · mais de 50% dos votos válidos");
+          } else {
+            renderFinalists(scr, getRunoffFinalists());
+          }
+        } else if (o === "pres" && roundView === 2) {
+          if (groups[0].rows.length === 1) renderWinner(scr, "pres", groups[0].rows[0], false, "Vencedor do 2º turno");
+          else scr.appendChild(el("p", "r-empty", "Empate no 2º turno: não há vencedor definido nesta simulação."));
+        } else if (o === "dep") {
+          renderWinner(scr, "dep", groups[0].rows[0], groups[0].rows.length > 1, "Mais votado para deputado");
+        }
+      }
+
+      var ul = el("ul", "rrows");
+      visible.forEach(function (g) {
+        var head = el("li", "rrow r-place");
+        head.style.setProperty("--numw", "3ch");
+        head.appendChild(el("span", "num", g.rank + "º"));
+        head.appendChild(el("span", "nm", "LUGAR"));
+        head.appendChild(el("span", "ct r-place-tie", g.rows.length > 1 ? "EMPATE" : ""));
+        ul.appendChild(head);
+        g.rows.forEach(function (r) {
+          var li = el("li", "rrow" + (g.rank === 1 ? " lead" : ""));
+          li.style.setProperty("--numw", "4ch");
+          li.appendChild(el("span", "num", r.num));
+          li.appendChild(el("span", "nm", r.name + " (" + r.abbr + ")"));
+          li.appendChild(el("span", "ct", r.c + " · " + pctLabel(r.c, o, roundView)));
+          var bar = el("div", "rbar");
+          var fill = document.createElement("i");
+          fill.style.width = pct(r.c, o, roundView) + "%";
+          bar.appendChild(fill);
+          li.appendChild(bar);
+          ul.appendChild(li);
+        });
+      });
+      scr.appendChild(ul);
+
+      if (revealCount === groups.length) {
+        var blank = o === "pres" && roundView === 2 ? state.runoffPresBlank : (o === "pres" ? state.presBlank : state.depBlank);
+        scr.appendChild(el("p", "r-intro", "Votos válidos: " + validVoteCount + " · Em branco: " + blank + " (" + ballotPctLabel(blank, o, roundView) + ")"));
+      }
+    }
+
+    var total = el("div", "rtotal");
+    total.appendChild(el("span", null, roundView === 2 && o === "pres" ? "Votos no 2º turno" : "Votos na sessão"));
+    total.appendChild(el("span", null, String(roundBallotCount)));
+    scr.appendChild(total);
   }
 
   $("open-result").addEventListener("click", function () { openResult("vote"); });
@@ -1090,7 +1339,7 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
     state.parties = ps;
     state.entry = "";
     state.branco = false;
-    state.step = "pres";
+    state.step = state.round === 2 ? "pres" : "dep";
     state.pend = null;
     save();
     $("settings").hidden = true;
